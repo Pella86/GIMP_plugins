@@ -1,0 +1,253 @@
+#!/usr/bin/env python
+
+#==============================================================================
+# No Man's Sky screenshots label
+#   This script copies the information from a screenshot of the visor pointed 
+#   at an animal, flora or mineral and pastes a formatted version on a 
+#   picture by choice.
+#
+#   Author: Pella86
+#==============================================================================
+
+
+#==============================================================================
+# Imports
+#==============================================================================
+from gimpfu import (FG_BUCKET_FILL, CHANNEL_OP_REPLACE, NORMAL_MODE,
+                    RGBA_IMAGE, EXPAND_AS_NECESSARY, PF_IMAGE, PF_DRAWABLE)
+
+from gimpfu import pdb
+
+from gimpfu import main, register
+
+#==============================================================================
+# Procedure functions
+#==============================================================================
+
+def adjust_perspective(drawable, new_width, new_height):
+    # The text is crooked by the perspective on the HUD, this procedure levels
+    # it, the proportions might be adjusted for an other resolution
+    
+    # upper left corner
+    x0 = 0
+    y0 = 0
+    
+    # upper right corner
+    x1 = new_width
+    y1 = -10
+    
+    # lower left corner
+    x2 = 0
+    y2 = 250
+    
+    # lower right corner
+    x3 = new_width
+    y3 = new_height
+    
+    transform_direction = 0 #TRANSFORM-FORWARD
+    interpolation = 2 #INTERPOLATION-CUBIC
+    supersample = 0 #ignored parameter
+    recursion_level = 3
+    clip_result = 1 #TRANSFORM-RESIZE-CLIP
+    
+    drawable = pdb.gimp_drawable_transform_perspective(drawable, x0, y0, x1, y1, x2, y2, x3, y3, transform_direction, interpolation, supersample, recursion_level, clip_result)
+    
+    return drawable
+
+def select_text(image, drawable):
+    # select the white stuff (text and the paw)
+    sample_threshold = 60.0/255.0 # threshold is calibrated to select only text
+    pdb.gimp_context_set_sample_threshold(sample_threshold)
+
+
+    operation = CHANNEL_OP_REPLACE
+    color = (235, 255, 255)
+    
+    pdb.gimp_image_select_color(image, operation, drawable, color)
+
+    # set FG Color to white
+    foreground = (255, 255, 255)
+    pdb.gimp_context_set_foreground(foreground)
+
+    # color selection white
+    fill_mode = FG_BUCKET_FILL
+    paint_mode = NORMAL_MODE
+    opacity = 100
+    threshold = 0
+    sample_merged = 0
+    x = 0
+    y = 0
+    pdb.gimp_bucket_fill(drawable, fill_mode, paint_mode, opacity, threshold, sample_merged, x, y)
+
+
+def clear_background(image, drawable):
+    # invert selection, thus selecting the background
+    pdb.gimp_selection_invert(image)
+    
+    # clear background
+    pdb.gimp_edit_clear(drawable)
+
+    # invert selection
+    pdb.gimp_selection_invert(image)    
+
+def add_black_outline(image, drawable):
+    
+    # make selection bigger
+    steps = 3
+    pdb.gimp_selection_grow(image, steps)
+    
+    # create new layer
+    width = image.active_layer.width
+    height = image.active_layer.height
+    type = RGBA_IMAGE
+    name = "text background"
+    opacity = 100
+    mode = NORMAL_MODE
+    layer_textbg = pdb.gimp_layer_new(image, width, height, type, name, opacity, mode)        
+    
+    position = 1
+    pdb.gimp_image_add_layer(image, layer_textbg, position)
+    
+    # select layer
+    image.active_layer = layer_textbg
+
+    # set FG Color to black
+    foreground = (0, 0, 0)
+    pdb.gimp_context_set_foreground(foreground)   
+    
+    # fill selection with black
+    fill_mode = FG_BUCKET_FILL
+    paint_mode = NORMAL_MODE
+    opacity = 100
+    threshold = 0
+    sample_merged = 0
+    x = 0
+    y = 0
+    pdb.gimp_bucket_fill(layer_textbg, fill_mode, paint_mode, opacity, threshold, sample_merged, x, y)
+    
+    # select the text layer and merge it to the black outline
+    merge_layer = image.layers[0]
+    merge_type = EXPAND_AS_NECESSARY
+    layer = pdb.gimp_image_merge_down(image, merge_layer, merge_type)
+    return layer
+
+
+def copy_all(image, drawable):
+    # select all
+    pdb.gimp_selection_all(image)
+    
+    # copy
+    drawable = image.active_layer
+    non_empty = pdb.gimp_edit_copy(drawable)
+    if not non_empty:
+        pdb.gimp_message("Error: Copy operation unsuccessful" ) 
+
+def paste_in_new_image(image, image2, drawable, new_width, new_height):
+    # create a new layer in the second image
+    width = new_width
+    height = new_height
+    type = RGBA_IMAGE
+    name = "information text"
+    opacity = 100
+    mode = NORMAL_MODE
+    layer_info = pdb.gimp_layer_new(image2, width, height, type, name, opacity, mode)              
+    
+    position = 0
+    pdb.gimp_image_add_layer(image2, layer_info, position) 
+
+            
+    # paste image
+    drawable = image2.active_layer
+    paste_into = True
+    
+    floating_sel = pdb.gimp_edit_paste(drawable, paste_into)
+    pdb.gimp_floating_sel_anchor(floating_sel)    
+ 
+    
+#==============================================================================
+# Procedure
+#==============================================================================
+
+def elaborate(image, drawable, image2):
+    
+    # insert the alpha channel 
+    # after the text extraction the blue background will be deleted
+    layer = image.active_layer
+    pdb.gimp_layer_add_alpha(layer)
+
+    # crop the image
+    # this needs to be adapted to screen resolution
+    
+    # defines new dimensions
+    new_width = 410
+    new_height = 250
+    offx = 118 + 14
+    offy = 322 + 12
+    pdb.gimp_image_crop(image, new_width, new_height, offx, offy)
+    
+    # aligh perspective
+    drawable = image.active_layer
+    drawable = adjust_perspective(drawable, new_width, new_height)
+    
+    # select white text and normalize color (paint all white)
+    select_text(image, drawable)
+    
+    # clear the blue background
+    clear_background(image, drawable)
+    
+    # add the outline
+    layer = add_black_outline(image, drawable)
+    
+    # copy the text
+    copy_all(image, drawable)
+    
+    # paste in new image
+    paste_in_new_image(image, image2, drawable, new_width, new_height)
+
+
+#==============================================================================
+# Script entry  
+#==============================================================================
+
+def nms_ss_label(image, drawable, image2):
+    handler = 0 #MESSAGE BOX
+    pdb.gimp_message_set_handler(handler)
+    
+    if image and image2:
+        images = [image, image2]
+        right_width  = all(True if i.width == 1920 else False for i in images)
+        right_height = all(True if i.height == 1080 else False for i in images)
+        
+        if right_width and right_height:
+            elaborate(image, drawable, image2)
+            pdb.gimp_message("Operation successfull")
+        else:
+            pdb.gimp_message("Error: Size of images must be 1920x1080")
+            
+    else:
+        pdb.gimp_message("Error: No image loaded")
+
+    handler = 2 # ERROR-CONSOLE
+    pdb.gimp_message_set_handler(handler)    
+
+
+#==============================================================================
+# GIMP main and stuff registry
+#==============================================================================
+
+register(
+    "python-fu-nms-ss-label",
+    "This function labels No Man's Sky screenshots",
+    "After providing two images, one with the visor scan view on a organism, the other with the screenshot to label, the program cuts the visor ss and pastes it on the image",
+    "Pella86", "Pella86", "2018",
+    "NMS Screenshot label",
+    "", # type of image it works on (*, RGB, RGB*, RGBA, GRAY etc...)
+    [
+        (PF_IMAGE, "image", "takes current image", None),
+        (PF_DRAWABLE, "drawable", "Input layer", None),
+        (PF_IMAGE, "image2", "Select image where to paste the information", None)
+    ],
+    [],
+    nms_ss_label, menu="<Image>/Games scripts")  # second item is menu location
+
+main()

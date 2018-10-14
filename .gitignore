@@ -1,0 +1,15 @@
+uninst/*
+gmic_film_cluts.gmz
+gmic_gimp.exe
+libcurl-4.dll
+libeay32_.dll
+libfftw3-3.dll
+libgcc_s_dw2-1.dll
+libgomp-1.dll
+libpng16-16.dll
+libssh2-1_.dll
+libstdc++-6.dll
+libwinpthread-1.dll
+pthreadGC2-w32.dll
+zlib1.dll
+zlib1_.dll
