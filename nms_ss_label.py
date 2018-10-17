@@ -56,7 +56,7 @@ def adjust_perspective(drawable, new_width, new_height):
 
 def select_text(image, drawable):
     # select the white stuff (text and the paw)
-    sample_threshold = 60.0/255.0 # threshold is calibrated to select only text
+    sample_threshold = 55.0/255.0 # threshold is calibrated to select only text
     pdb.gimp_context_set_sample_threshold(sample_threshold)
 
     operation = CHANNEL_OP_REPLACE
@@ -64,21 +64,6 @@ def select_text(image, drawable):
     
     
     pdb.gimp_image_select_color(image, operation, drawable, color)
-
-    # set FG Color to white
-    foreground = (255, 255, 255)
-    pdb.gimp_context_set_foreground(foreground)
-
-    # color selection white
-    fill_mode = FG_BUCKET_FILL
-    paint_mode = NORMAL_MODE
-    opacity = 100
-    threshold = 0
-    sample_merged = 0
-    x = 0
-    y = 0
-    pdb.gimp_bucket_fill(drawable, fill_mode, paint_mode, opacity, threshold, sample_merged, x, y)
-
 
 def clear_background(image, drawable):
     # invert selection, thus selecting the background
@@ -89,6 +74,55 @@ def clear_background(image, drawable):
 
     # invert selection
     pdb.gimp_selection_invert(image)    
+
+def bucket_fill(drawable):
+    fill_mode = FG_BUCKET_FILL
+    paint_mode = NORMAL_MODE
+    opacity = 100
+    threshold = 0
+    sample_merged = 0
+    x = 0
+    y = 0
+    pdb.gimp_bucket_fill(drawable, fill_mode, paint_mode, opacity, threshold, sample_merged, x, y)    
+
+def beautify_font(image, layer):
+    
+    org_width = layer.width
+    org_height = layer.height
+
+    # set FG Color to white
+    foreground = (255, 255, 255)
+    pdb.gimp_context_set_foreground(foreground)
+
+    # color selection white
+    bucket_fill(layer)
+    
+    # scale layer
+    new_width = org_width * 2
+    new_height = org_height * 2
+    local_origin = 1 # 1 = True | 0 = False
+    pdb.gimp_layer_scale(layer, new_width, new_height, local_origin)
+    
+    # alpha to selection
+    operation = CHANNEL_OP_REPLACE
+    item = layer
+    pdb.gimp_image_select_item(image, operation, item)
+    
+    
+    # bucket fill
+    bucket_fill(layer)
+    
+    # scale back to normal
+    new_width = org_width
+    new_height = org_height
+    local_origin = 1 # 1 = True | 0 = False
+    pdb.gimp_layer_scale(layer, new_width, new_height, local_origin) 
+
+    # alpha to selection
+    operation = CHANNEL_OP_REPLACE
+    item = layer
+    pdb.gimp_image_select_item(image, operation, item)
+
 
 def add_black_outline(image, drawable, original_layer_position, width, height, offx, offy):
     
@@ -140,9 +174,9 @@ def copy_all(image, drawable):
     # copy
     non_empty = pdb.gimp_edit_copy(drawable)
     if not non_empty:
-        pdb.gimp_message("Error: Copy operation unsuccessful" ) 
+        pdb.gimp_message("Error: Copy operation failed" ) 
 
-def paste_in_new_image(image2, ilayer, width, height):
+def paste_in_new_image(image2, ilayer, width, height, offx, offy):
     # create a new layer in the second image
     type = RGBA_IMAGE
     name = "information text {}".format(ilayer + 1)
@@ -160,6 +194,9 @@ def paste_in_new_image(image2, ilayer, width, height):
     
     floating_sel = pdb.gimp_edit_paste(drawable, paste_into)
     pdb.gimp_floating_sel_anchor(floating_sel)    
+    
+    # move to original visor position
+    pdb.gimp_layer_set_offsets(drawable, offx, offy)
 
 
 
@@ -201,58 +238,39 @@ def elaborate(image, drawable, image2):
                       CropCoords(199, 85, 125, 239),
                       CropCoords(293, 81, 1521, 500),
                       CropCoords(228, 113, 1575, 588)]
+
+#    ss_info_coords = [CropCoords(410, 250, 132, 334)]
     
-    for i in range(4):
+    n_layers = len(ss_info_coords)
+    
+    for i in range(n_layers - 1):
         add_alpha = 1 #0 = False | 1 = True
         copy_layer = pdb.gimp_layer_copy(layer, add_alpha)
         
         position = 0
         pdb.gimp_image_add_layer(image, copy_layer, position)
     
-    for ilayer in range(5):
+    for ilayer in range(n_layers):
         layer = image.layers[ilayer]
 
         pdb.gimp_layer_resize(layer, *ss_info_coords[ilayer].crop_layer())
     
-    for ilayer in range(5):
+    for ilayer in range(n_layers):
         layer = image.layers[ilayer]
         select_text(image, layer)
         clear_background(image, layer)
+        
+        beautify_font(image, layer)
+        
+        
         add_black_outline(image, layer, ilayer, *ss_info_coords[ilayer].add_layer())
     
-    for ilayer in range(5):
+    
+    for ilayer in range(n_layers):
         layer = image.layers[ilayer]
         copy_all(image, layer)
-        paste_in_new_image(image2, ilayer, *ss_info_coords[ilayer].get_size())
+        paste_in_new_image(image2, ilayer, *ss_info_coords[ilayer].add_layer())
 
-#    # crop the image
-#    # this needs to be adapted to screen resolution
-#    
-#    # defines new dimensions
-#    new_width = 410
-#    new_height = 250
-#    offx = 118 + 14
-#    offy = 322 + 12
-#    pdb.gimp_image_crop(image, new_width, new_height, offx, offy)
-#    
-#    # aligh perspective
-#    drawable = image.active_layer
-#    drawable = adjust_perspective(drawable, new_width, new_height)
-#    
-#    # select white text and normalize color (paint all white)
-#    select_text(image, drawable)
-#    
-#    # clear the blue background
-#    clear_background(image, drawable)
-#    
-#    # add the outline
-#    layer = add_black_outline(image, drawable)
-#    
-#    # copy the text
-#    copy_all(image, drawable)
-#    
-#    # paste in new image
-#    paste_in_new_image(image, image2, drawable, new_width, new_height)
 
 
 #==============================================================================
