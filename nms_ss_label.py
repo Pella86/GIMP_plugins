@@ -59,9 +59,9 @@ def select_text(image, drawable):
     sample_threshold = 60.0/255.0 # threshold is calibrated to select only text
     pdb.gimp_context_set_sample_threshold(sample_threshold)
 
-
     operation = CHANNEL_OP_REPLACE
     color = (235, 255, 255)
+    
     
     pdb.gimp_image_select_color(image, operation, drawable, color)
 
@@ -90,24 +90,25 @@ def clear_background(image, drawable):
     # invert selection
     pdb.gimp_selection_invert(image)    
 
-def add_black_outline(image, drawable):
+def add_black_outline(image, drawable, original_layer_position, width, height, offx, offy):
     
     # make selection bigger
     steps = 3
     pdb.gimp_selection_grow(image, steps)
     
     # create new layer
-    width = image.active_layer.width
-    height = image.active_layer.height
     type = RGBA_IMAGE
     name = "text background"
     opacity = 100
     mode = NORMAL_MODE
     layer_textbg = pdb.gimp_layer_new(image, width, height, type, name, opacity, mode)        
-    
-    position = 1
+
+    position = original_layer_position + 1
     pdb.gimp_image_add_layer(image, layer_textbg, position)
-    
+
+    #offset new layer by info
+    pdb.gimp_layer_set_offsets(layer_textbg, offx, offy)
+   
     # select layer
     image.active_layer = layer_textbg
 
@@ -126,7 +127,7 @@ def add_black_outline(image, drawable):
     pdb.gimp_bucket_fill(layer_textbg, fill_mode, paint_mode, opacity, threshold, sample_merged, x, y)
     
     # select the text layer and merge it to the black outline
-    merge_layer = image.layers[0]
+    merge_layer = image.layers[original_layer_position]
     merge_type = EXPAND_AS_NECESSARY
     layer = pdb.gimp_image_merge_down(image, merge_layer, merge_type)
     return layer
@@ -137,17 +138,14 @@ def copy_all(image, drawable):
     pdb.gimp_selection_all(image)
     
     # copy
-    drawable = image.active_layer
     non_empty = pdb.gimp_edit_copy(drawable)
     if not non_empty:
         pdb.gimp_message("Error: Copy operation unsuccessful" ) 
 
-def paste_in_new_image(image, image2, drawable, new_width, new_height):
+def paste_in_new_image(image2, ilayer, width, height):
     # create a new layer in the second image
-    width = new_width
-    height = new_height
     type = RGBA_IMAGE
-    name = "information text"
+    name = "information text {}".format(ilayer + 1)
     opacity = 100
     mode = NORMAL_MODE
     layer_info = pdb.gimp_layer_new(image2, width, height, type, name, opacity, mode)              
@@ -157,52 +155,104 @@ def paste_in_new_image(image, image2, drawable, new_width, new_height):
 
             
     # paste image
-    drawable = image2.active_layer
+    drawable = image2.layers[0]
     paste_into = True
     
     floating_sel = pdb.gimp_edit_paste(drawable, paste_into)
     pdb.gimp_floating_sel_anchor(floating_sel)    
- 
-    
+
+
+
 #==============================================================================
 # Procedure
 #==============================================================================
 
+class CropCoords:
+    
+    def __init__(self, w, h, offx, offy):
+        self.width = w
+        self.height = h
+        self.offx = offx
+        self.offy = offy
+    
+    def crop_layer(self):
+        return (self.width, self.height, -self.offx, -self.offy) 
+
+    def add_layer(self):     
+        return (self.width, self.height, self.offx, self.offy) 
+    
+    def get_offsets(self):
+        return (self.offx, self.offy)
+    
+    def get_size(self):
+        return (self.width, self.height)
+    
 def elaborate(image, drawable, image2):
     
     # insert the alpha channel 
     # after the text extraction the blue background will be deleted
     layer = image.active_layer
     pdb.gimp_layer_add_alpha(layer)
+    
+    # create 4 copies of the visor image
+    
+    ss_info_coords = [CropCoords(410, 250, 132, 334),
+                      CropCoords(321, 149, 119, 606),
+                      CropCoords(199, 85, 125, 239),
+                      CropCoords(293, 81, 1521, 500),
+                      CropCoords(228, 113, 1575, 588)]
+    
+    for i in range(4):
+        add_alpha = 1 #0 = False | 1 = True
+        copy_layer = pdb.gimp_layer_copy(layer, add_alpha)
+        
+        position = 0
+        pdb.gimp_image_add_layer(image, copy_layer, position)
+    
+    for ilayer in range(5):
+        layer = image.layers[ilayer]
 
-    # crop the image
-    # this needs to be adapted to screen resolution
+        pdb.gimp_layer_resize(layer, *ss_info_coords[ilayer].crop_layer())
     
-    # defines new dimensions
-    new_width = 410
-    new_height = 250
-    offx = 118 + 14
-    offy = 322 + 12
-    pdb.gimp_image_crop(image, new_width, new_height, offx, offy)
+    for ilayer in range(5):
+        layer = image.layers[ilayer]
+        select_text(image, layer)
+        clear_background(image, layer)
+        add_black_outline(image, layer, ilayer, *ss_info_coords[ilayer].add_layer())
     
-    # aligh perspective
-    drawable = image.active_layer
-    drawable = adjust_perspective(drawable, new_width, new_height)
-    
-    # select white text and normalize color (paint all white)
-    select_text(image, drawable)
-    
-    # clear the blue background
-    clear_background(image, drawable)
-    
-    # add the outline
-    layer = add_black_outline(image, drawable)
-    
-    # copy the text
-    copy_all(image, drawable)
-    
-    # paste in new image
-    paste_in_new_image(image, image2, drawable, new_width, new_height)
+    for ilayer in range(5):
+        layer = image.layers[ilayer]
+        copy_all(image, layer)
+        paste_in_new_image(image2, ilayer, *ss_info_coords[ilayer].get_size())
+
+#    # crop the image
+#    # this needs to be adapted to screen resolution
+#    
+#    # defines new dimensions
+#    new_width = 410
+#    new_height = 250
+#    offx = 118 + 14
+#    offy = 322 + 12
+#    pdb.gimp_image_crop(image, new_width, new_height, offx, offy)
+#    
+#    # aligh perspective
+#    drawable = image.active_layer
+#    drawable = adjust_perspective(drawable, new_width, new_height)
+#    
+#    # select white text and normalize color (paint all white)
+#    select_text(image, drawable)
+#    
+#    # clear the blue background
+#    clear_background(image, drawable)
+#    
+#    # add the outline
+#    layer = add_black_outline(image, drawable)
+#    
+#    # copy the text
+#    copy_all(image, drawable)
+#    
+#    # paste in new image
+#    paste_in_new_image(image, image2, drawable, new_width, new_height)
 
 
 #==============================================================================

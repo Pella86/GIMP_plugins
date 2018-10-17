@@ -60,6 +60,6 @@ register(
         # see ui_examples_1.py and ui_examples_2.py for live examples
     ],
     [],
-    civ_minimap, menu="<Image>/Game scripts")  # second item is menu location
+    civ_minimap, menu="<Image>/Games scripts")  # second item is menu location
 
 main()
